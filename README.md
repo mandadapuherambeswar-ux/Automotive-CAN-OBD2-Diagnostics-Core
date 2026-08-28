@@ -9,7 +9,44 @@ A high-performance, MISRA-C compliant **Automotive Diagnostics Protocol Stack** 
 
 ---
 
-## 🏛️ System Architecture
+## 🔌 Hardware Circuit Diagram & Automotive OBD-II Interface
+
+```
+ +---------------------------------------------------------------------------------------------------+
+ |                                   AUTOMOTIVE CAN BUS WIRING HARNESS                                |
+ +---------------------------------------------------------------------------------------------------+
+
+     [ Microcontroller (STM32/ESP32) ]
+              |          |
+         (SPI SCK)   (SPI MOSI)
+              |          |
+              v          v
+     +-------------------------------+               +-------------------------------+
+     |      MCP2515 CAN Controller   |               |     TJA1050 / MCP2551         |
+     |   (Stand-Alone SPI Controller)|               |     High-Speed Transceiver    |
+     |                               |               |                               |
+     |                           TXD |-------------->| TXD                           |
+     |                           RXD |<--------------| RXD            [ 120Ω Term ]  |
+     |                           INT |               |                 Resistor      |
+     |                           CS  |               |                     |         |
+     +-------------------------------+               |           CANH -----+--------( Pin 6: CAN High )
+                                                     |           CANL -----+--------( Pin 14: CAN Low )
+                                                     +-------------------------------+
+                                                                                            |
+                                                                             +--------------v--------------+
+                                                                             |   SAE J1962 OBD-II PORT     |
+                                                                             |                             |
+                                                                             |  Pin 4: Chassis GND         |
+                                                                             |  Pin 5: Signal GND          |
+                                                                             |  Pin 6: CAN-H (500 kbps)    |
+                                                                             |  Pin 14: CAN-L (500 kbps)   |
+                                                                             |  Pin 16: +12V Battery Power |
+                                                                             +-----------------------------+
+```
+
+---
+
+## 🏛️ System Architecture & Frame Flow
 
 ```mermaid
 sequenceDiagram
@@ -27,27 +64,25 @@ sequenceDiagram
 
 ---
 
-## ⚡ Core Features
+## ⚡ Supported Diagnostic Modes & PIDs
 
-1. **Full ISO 15765-2 Transport Protocol**:
-   - Handles **Single Frames (SF)**, **First Frames (FF)**, **Consecutive Frames (CF)**, and **Flow Control (FC)** with configurable Block Size (`BS`) and Separation Time (`STmin`).
-   - Supports segmented payloads up to **4,095 bytes** with deterministic buffer bounds and timeout guards.
-2. **SAE J1979 Diagnostic Service Handlers**:
-   - **Mode 01**: Live sensor telemetry readouts (Engine RPM, Speed, Coolant Temp, Throttle Position, Engine Load, MAF).
-   - **Mode 03**: Reading confirmed Diagnostic Trouble Codes (DTCs) e.g., `P0301`, `P0420`.
-   - **Mode 04**: Clearing DTCs and resetting MIL status.
-   - **Mode 09**: Vehicle identification metadata.
-3. **Hardware Agnostic & Mocking Suite**:
-   - Zero hardcoded hardware dependencies. Runs seamlessly over hardware CAN controllers (MCP2515, STM32 bxCAN, SocketCAN) or virtual software buses.
-   - Python-based test harness (`tools/virtual_ecu_fuzzer.py`) for automated fuzzing and regression testing.
+| Service Mode | PID | Name | Standard Formula | Unit |
+| :--- | :--- | :--- | :--- | :--- |
+| **Mode 01** | `0x0C` | Engine RPM | `((A * 256) + B) / 4` | RPM |
+| **Mode 01** | `0x0D` | Vehicle Speed | `A` | km/h |
+| **Mode 01** | `0x05` | Engine Coolant Temp | `A - 40` | °C |
+| **Mode 01** | `0x11` | Throttle Position | `(A * 100) / 255` | % |
+| **Mode 01** | `0x04` | Calculated Engine Load | `(A * 100) / 255` | % |
+| **Mode 03** | - | Stored Trouble Codes | Read active DTCs (`P0301`, `P0420`) | 2-byte DTC |
+| **Mode 04** | - | Clear Diagnostic Codes | Reset DTCs & MIL Check Engine Lamp | Acknowledged |
 
 ---
 
 ## 🛠️ Build & Verification
 
 ```bash
-# Build with GCC / Clang
-gcc -Wall -Wextra -Iinclude src/iso_tp.c src/obd2.c src/main.c -o obd_diag_core
+# Build diagnostic stack
+gcc -Wall -Wextra -Iinclude src/iso_tp.c src/obd2.c src/mcp2515_can.c src/main.c -o obd_diag_core
 
 # Execute the diagnostic stack simulation
 ./obd_diag_core
